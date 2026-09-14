@@ -142,9 +142,24 @@ try {
   console.log('\n4. Several programs');
   await page.click('#work');
   await page.waitForTimeout(200);
+
+  // A new program must be named before it can exist. Silently creating another
+  // "My program" is how a student ends up with a list they cannot read.
   await page.click('[data-new]');
+  await page.waitForTimeout(150);
+  check('naming the program is asked for first',
+    await page.locator('[data-new-form]').isVisible());
+  check('and Create is refused until there is a name',
+    await page.locator('[data-new-create]').isDisabled());
+
+  await page.fill('[data-new-name]', 'Second program');
+  await page.waitForTimeout(100);
+  check('the name enables Create', !(await page.locator('[data-new-create]').isDisabled()));
+  await page.click('[data-new-create]');
   await page.waitForTimeout(400);
   check('new program starts empty', (await getCode()) === '', JSON.stringify(await getCode()));
+  check('and carries the name that was typed',
+    (await page.inputValue('#name')) === 'Second program', await page.inputValue('#name'));
 
   await setCode('second program\n');
   await page.waitForTimeout(700);
@@ -153,11 +168,109 @@ try {
   const projCount = await page.locator('[data-projects] .panel-item').count();
   check('both programs are listed', projCount >= 2, `${projCount} programs`);
 
+  /* ------------------------------------ 4b. the list must hold still */
+  // Reported from a classroom: clicking a program reshuffled the others, for
+  // no reason a student could see. The cause was ordering by updatedAt while
+  // persist() stamped updatedAt on every write -- including the flush of the
+  // program being switched AWAY from, which sent it to the top.
+  console.log('\n4b. Opening a program must not reorder the list');
+  const orderBefore = await page.locator('[data-projects] .panel-item-name').allTextContents();
   await page.locator('[data-projects] .panel-item-main').nth(1).click();
   await page.waitForTimeout(400);
   check('switching programs loads the other one',
     (await getCode()) !== 'second program\n', await getCode());
+
+  const orderAfter = await page.locator('[data-projects] .panel-item-name').allTextContents();
+  check('the order is exactly what it was',
+    JSON.stringify(orderBefore) === JSON.stringify(orderAfter),
+    `before ${JSON.stringify(orderBefore)}\n         after  ${JSON.stringify(orderAfter)}`);
+
+  // Typing must not move it either -- only a real edit updates "edited", and
+  // position does not depend on that in any case.
   await page.click('.panel-head [data-close]');
+  await page.waitForTimeout(150);
+  await setCode('a genuine edit\n');
+  await page.waitForTimeout(700);
+  await page.click('#work');
+  await page.waitForTimeout(300);
+  check('and editing does not move it either',
+    JSON.stringify(await page.locator('[data-projects] .panel-item-name').allTextContents())
+      === JSON.stringify(orderAfter));
+
+  /* -------------------------- 4c. a program with no history is legible */
+  // Also reported: a program with no earlier versions showed an empty History
+  // AND an empty Preview, so there was no way to tell what it was.
+  console.log('\n4c. Preview always shows the program');
+  await page.click('[data-new]');
+  await page.waitForTimeout(150);
+  await page.fill('[data-new-name]', 'Fresh with no history');
+  await page.click('[data-new-create]');
+  await page.waitForTimeout(400);
+  check('creating a program closes the panel and returns to the editor',
+    await page.locator('#panel').isHidden());
+  await setCode('# brand new, never snapshotted\nprint("hello")\n');
+  await page.waitForTimeout(700);
+  await page.click('#work');
+  await page.waitForTimeout(300);
+
+  check('the preview is showing something',
+    await page.locator('[data-preview]').isVisible());
+  check('and it is this program, not a blank pane',
+    (await page.textContent('[data-preview]')).includes('brand new, never snapshotted'),
+    (await page.textContent('[data-preview]')).slice(0, 80));
+  check('the current version is the row selected by default',
+    (await page.textContent('[data-snapshots] .panel-item.is-current')).includes('Current version'),
+    await page.textContent('[data-snapshots] .panel-item.is-current'));
+  check('and it offers no Restore, because it is already on screen',
+    await page.locator('[data-restore]').isHidden());
+
+  /* --------------------------------- 4d. names cannot collide silently */
+  console.log('\n4d. Two programs cannot share a name');
+  await page.click('.panel-head [data-close]');
+  await page.waitForTimeout(150);
+  await page.fill('#name', 'Second program');
+  await page.dispatchEvent('#name', 'change');
+  await page.waitForTimeout(500);
+  check('a duplicate name is made distinct',
+    (await page.inputValue('#name')) !== 'Second program',
+    await page.inputValue('#name'));
+  check('and the student is told why',
+    (await page.textContent('.console-lines')).includes('already have a program with that name'));
+
+  /* --------------------------- 4e. the one name nobody chose gets a nudge */
+  // The first program, a recovered buffer and a shared link are the only
+  // routes left that can produce an unchosen name. Those get asked once,
+  // after a run -- not before, and not twice.
+  console.log('\n4e. A still-unnamed program is nudged once');
+  await page.fill('#name', 'My program');
+  await page.dispatchEvent('#name', 'change');
+  await page.waitForTimeout(400);
+  check('an unchosen name is marked on the field',
+    await page.locator('#name.needs-name').count() === 1);
+
+  await setCode('import turtle\nt = turtle.Turtle()\nt.forward(10)\n');
+  await page.click('#run');
+  await page.waitForFunction(() => !document.getElementById('run').disabled,
+    null, { timeout: 60000 });
+  await page.waitForTimeout(400);
+  check('running it asks for a name',
+    (await page.textContent('.console-lines')).includes('still called'),
+    await page.textContent('.console-lines'));
+
+  // Each run clears the console, so a second nudge would be plainly visible.
+  await page.click('#run');
+  await page.waitForFunction(() => !document.getElementById('run').disabled,
+    null, { timeout: 60000 });
+  await page.waitForTimeout(400);
+  check('and does not ask again',
+    !(await page.textContent('.console-lines')).includes('still called'),
+    await page.textContent('.console-lines'));
+
+  await page.fill('#name', 'Named at last');
+  await page.dispatchEvent('#name', 'change');
+  await page.waitForTimeout(300);
+  check('naming it clears the mark',
+    await page.locator('#name.needs-name').count() === 0);
 
   /* --------------------------------------------------- 5. share links */
   console.log('\n5. Share links');
@@ -310,6 +423,9 @@ t.dot(30, "green")
   await page.click('#work');
   await page.waitForTimeout(200);
   await page.click('[data-new]');
+  await page.waitForTimeout(150);
+  await page.fill('[data-new-name]', 'Nothing drawn yet');
+  await page.click('[data-new-create]');
   await page.waitForTimeout(400);
   await page.evaluate(() => window.__export('png2'));
   await page.waitForTimeout(200);

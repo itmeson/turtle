@@ -104,8 +104,8 @@ const panel = new WorkPanel(el('panel'), {
     loadProject(project);
     await refreshPanel();
   },
-  onNewProject: async () => {
-    const project = await workspace.create('', 'My program');
+  onNewProject: async (name) => {
+    const project = await workspace.create('', name);
     loadProject(project);
     await refreshPanel();
     panel.close();
@@ -126,9 +126,52 @@ const panel = new WorkPanel(el('panel'), {
   },
 });
 
+/* --------------------------------------------------------------- naming */
+
+/**
+ * Names nobody chose.
+ *
+ * A student only ends up with one of these because the editor had to call the
+ * program something before they had said what it was: the very first program,
+ * a recovered buffer, a program made from a shared link. Every other route now
+ * asks for a name first. These are the ones worth nudging about.
+ */
+const UNCHOSEN_NAME = /^(my program|untitled program|recovered program|shared program)( \d+)?$/i;
+
+/** Projects already nudged this session — asked once, then dropped. */
+const nudged = new Set();
+
+function needsName() {
+  return UNCHOSEN_NAME.test((nameField.value ?? '').trim());
+}
+
+/** Amber outline on the name field while the program is still unnamed. */
+function markNamed() {
+  nameField.classList.toggle('needs-name', needsName());
+}
+
+/**
+ * Ask once, after a run that produced something, and never again.
+ *
+ * Deliberately after the run rather than before: interrupting a student on the
+ * way to seeing their drawing is how a tool teaches people to dismiss its
+ * messages without reading them.
+ */
+function nudgeForName() {
+  const id = workspace.project?.id;
+  if (!id || nudged.has(id) || !needsName()) return;
+  if (editor.value.split('\n').filter((l) => l.trim()).length < 2) return;
+  nudged.add(id);
+  consolePane.append(
+    `This program is still called "${nameField.value}". Give it a name at the top `
+    + 'so you can find it in Your work later.', 'notice',
+  );
+}
+
 function loadProject(project) {
   editor.value = project.code ?? '';
   nameField.value = project.name ?? 'My program';
+  markNamed();
   clearBanner();
   renderSaveState(workspace.saveState);
 
@@ -144,7 +187,7 @@ function loadProject(project) {
 
 async function refreshPanel() {
   panel.renderProjects(await workspace.listAll(), workspace.project?.id ?? null);
-  panel.renderSnapshots(await workspace.history());
+  panel.renderSnapshots(await workspace.history(), workspace.project?.name ?? '');
 }
 
 /* ---------------------------------------------------------------- banner */
@@ -335,6 +378,8 @@ async function doRun() {
       skipBtn.hidden = true;
       setStatus(finished, finishedKind);
     }
+
+    nudgeForName();
   } catch (err) {
     consolePane.appendBlock('error', 'Could not run', String(err?.message ?? err), null);
     setStatus('Could not run', 'bad');
@@ -515,7 +560,19 @@ examplesList.addEventListener('click', async (e) => {
   editor.focus();
 });
 
-nameField.addEventListener('change', () => workspace.rename(nameField.value));
+nameField.addEventListener('change', async () => {
+  const used = await workspace.rename(nameField.value);
+  // rename() refuses to create a second program with the same name. Put the
+  // name it actually used back on screen so the difference is visible now
+  // rather than discovered later as two identical rows in the panel.
+  if (used && used !== nameField.value) {
+    nameField.value = used;
+    consolePane.append(
+      `You already have a program with that name, so this one is "${used}".`, 'notice',
+    );
+  }
+  markNamed();
+});
 
 function syncWhitespaceButton() {
   const on = editor.getShowWhitespace();

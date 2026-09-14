@@ -419,6 +419,36 @@ settings:   { key, value }                       // showWhitespace, lastProjectI
 - **Snapshots:** every 30 s, if `code` differs from the newest snapshot, append. Prune to the **newest 50 per project** on write.
 - **History panel:** list snapshots with relative timestamps ("14 minutes ago") and a line-count delta. Selecting one shows a read-only diff; **Restore** creates a *new* snapshot of the current state first, then replaces the buffer. Restoring is never destructive.
 
+### The "Your work" panel
+
+Three rules, each added after the panel was used in a classroom and found
+confusing. All three are pinned by tests in `test/phase3.browser.mjs`.
+
+**The Programs list never reorders itself.** Ordering is by `createdAt`, so a
+new program appears at the top and then never moves. It was ordered by
+`updatedAt`, which looked friendlier and behaved unpredictably: `persist(true)`
+is called when starting up, switching programs, creating one and deleting one,
+and each call stamped `updatedAt`. Switching from A to B flushes A — so A, the
+program you just left, jumped above B. From a student's seat the list
+rearranged for no visible reason. `updatedAt` now moves only when the code or
+the name actually changed, so the "edited 3 minutes ago" on each row is true;
+it is simply not what decides position.
+
+**The Preview column is never blank.** The History list always begins with a
+`Current version` row, selected by default, showing what is in the editor. A
+program with no snapshots yet — every new program, and every program written in
+one sitting — used to show an empty History *and* an empty Preview, so the panel
+had no answer to "which program is this?". A snapshot whose text equals the
+current text is not listed, since it is not an earlier version of anything.
+
+**Programs are named when they are created.** `New program` opens an inline
+field and the Create button stays disabled until it has a value. Names are made
+unique on create and on rename (`uniqueName`), so "spiral" beside an existing
+"spiral" becomes "spiral 2" and a student is told it happened. Three routes can
+still produce a name nobody chose — the first program of all, a recovered
+buffer, and a shared link — and those are nudged once, in the console, *after* a
+run rather than before it.
+
 ### Belt and braces
 
 Mirror the current buffer to `localStorage` on the same debounce. If IndexedDB is unavailable (Safari private browsing, quota exhaustion, corrupted store), fall back transparently and show a persistent, quiet indicator that history is unavailable this session.

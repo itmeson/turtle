@@ -142,11 +142,30 @@ export const getProject = (id) =>
 export const putProject = (project) =>
   writeStore(STORE_PROJECTS, (s) => s.put(project));
 
-/** @returns {Promise<Project[]>} newest first */
+/**
+ * @returns {Promise<Project[]>} newest-created first, and STABLE
+ *
+ * Ordered by `createdAt`, not `updatedAt`, and that is the whole point.
+ *
+ * Sorting by last-edited seems friendlier and is not: the list reorders itself
+ * underneath a student who is looking at it. Opening a program writes the one
+ * they just left, editing a character moves the current one to the top, and the
+ * list they are reading rearranges between one glance and the next. It looks
+ * random because the thing being ordered is invisible.
+ *
+ * Creation order never changes. A new program appears at the top and then stays
+ * exactly where it is for the rest of the year, which is what makes a list
+ * findable. `updatedAt` is still shown on each row -- it is just not what
+ * decides position.
+ *
+ * The id tiebreak keeps two programs created in the same millisecond from
+ * swapping places between renders.
+ */
 export async function listProjects() {
   const all = await withStore(STORE_PROJECTS, 'readonly', (s) => s.getAll());
   if (!Array.isArray(all)) return [];
-  return all.sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
+  return all.sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0)
+    || String(a.id).localeCompare(String(b.id)));
 }
 
 export const deleteProject = (id) =>

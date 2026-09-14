@@ -54,6 +54,18 @@ export class Workspace {
     this.saveTimer = 0;
     this.snapshotTimer = 0;
     this.pendingCode = null;
+    // What was last written out, so persist() can tell a real edit from a
+    // routine flush. See the note on `updatedAt` in persist().
+    this.lastWrittenCode = null;
+    this.lastWrittenName = null;
+  }
+
+  /** Remember a project as the one now open, and as the baseline for edits. */
+  adopt(project) {
+    this.project = project;
+    this.lastSnapshotCode = project.code;
+    this.lastWrittenCode = project.code;
+    this.lastWrittenName = project.name;
   }
 
   /* ----------------------------------------------------------- lifecycle */
@@ -80,8 +92,11 @@ export class Workspace {
       const lastId = await getSetting('lastProjectId');
       if (lastId) project = await getProject(lastId);
       if (!project) {
+        // No pointer -- fall back to whatever was edited most recently. The
+        // list itself is ordered by creation (see db.listProjects), but "which
+        // one was I working on" is a genuinely different question.
         const all = await listProjects();
-        project = all[0] ?? null;
+        project = all.slice().sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))[0] ?? null;
       }
     }
 
@@ -100,8 +115,7 @@ export class Workspace {
 
     if (!project) project = this.blankProject(defaultCode, 'My program');
 
-    this.project = project;
-    this.lastSnapshotCode = project.code;
+    this.adopt(project);
     await this.persist(true);
     this.startSnapshots();
     return { project, recovered };
@@ -133,10 +147,20 @@ export class Workspace {
     this.handlers.onSaveState?.(state);
   }
 
+  /**
+   * @returns {Promise<string>} the name actually used, which may differ from
+   * the one asked for if another program already had it. The caller is expected
+   * to put the returned name back on screen, so the student sees what happened
+   * rather than discovering two identical rows later.
+   */
   async rename(name) {
-    if (!this.project) return;
-    this.project.name = name || 'Untitled program';
+    if (!this.project) return '';
+    const others = (await this.listAll())
+      .filter((p) => p.id !== this.project.id)
+      .map((p) => p.name);
+    this.project.name = uniqueName(name, others);
     await this.persist(true);
+    return this.project.name;
   }
 
   /**
@@ -155,7 +179,19 @@ export class Workspace {
 
     const code = this.project.code;
     this.pendingCode = null;
-    this.project.updatedAt = Date.now();
+
+    // `updatedAt` moves only when something about the program actually changed.
+    //
+    // It used to move on every write, and persist(true) is called for reasons
+    // that have nothing to do with editing: starting up, switching programs,
+    // creating one, deleting one. So a program's "edited" time was really its
+    // "last touched by the machinery" time -- untrue on its face, and, back
+    // when the list was sorted by it, the reason opening one program appeared
+    // to shuffle the others.
+    const changed = code !== this.lastWrittenCode || this.project.name !== this.lastWrittenName;
+    if (changed) this.project.updatedAt = Date.now();
+    this.lastWrittenCode = code;
+    this.lastWrittenName = this.project.name;
 
     let durable = false;
     if (this.durable) {
@@ -274,19 +310,25 @@ export class Workspace {
     if (!this.durable) return null;
     const project = await getProject(projectId);
     if (!project) return null;
-    await this.persist(true);
-    this.project = project;
-    this.lastSnapshotCode = project.code;
+    await this.persist(true);         // flush the outgoing program, unchanged
+    this.adopt(project);
     this.writeMirror(project.code);
     await setSetting('lastProjectId', project.id);
     return project;
   }
 
-  /** Create a new program and switch to it. */
+  /**
+   * Create a new program and switch to it.
+   *
+   * The name is made unique against what is already there. Two programs called
+   * "My program" are two programs a student cannot tell apart in a list, and
+   * the names that repeat are exactly the ones nobody chose: the default, the
+   * starters, "Shared program".
+   */
   async create(code, name = 'My program') {
     await this.persist(true);
-    this.project = this.blankProject(code, name);
-    this.lastSnapshotCode = code;
+    const taken = (await this.listAll()).map((p) => p.name);
+    this.adopt(this.blankProject(code, uniqueName(name, taken)));
     this.writeMirror(code);
     await this.persist(true);
     return this.project;
@@ -298,11 +340,27 @@ export class Workspace {
     await deleteProject(projectId);
     if (this.project?.id === projectId) {
       const rest = await listProjects();
-      this.project = rest[0] ?? this.blankProject('', 'My program');
-      this.lastSnapshotCode = this.project.code;
+      this.adopt(rest[0] ?? this.blankProject('', 'My program'));
       await this.persist(true);
     }
   }
+}
+
+/**
+ * "spiral" beside an existing "spiral" becomes "spiral 2".
+ *
+ * @param {string} base
+ * @param {string[]} taken
+ */
+export function uniqueName(base, taken) {
+  const wanted = (base || '').trim() || 'Untitled program';
+  const used = new Set(taken.map((n) => (n || '').trim().toLowerCase()));
+  if (!used.has(wanted.toLowerCase())) return wanted;
+  for (let n = 2; n < 1000; n += 1) {
+    const candidate = `${wanted} ${n}`;
+    if (!used.has(candidate.toLowerCase())) return candidate;
+  }
+  return `${wanted} ${Date.now()}`;
 }
 
 /** "14 minutes ago" — history is unreadable as raw timestamps. */
