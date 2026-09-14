@@ -1,0 +1,79 @@
+# Build and publish the Python Turtle Editor to GitHub Pages.
+#
+# The tests run BEFORE the deploy, and a failure stops it. Two of them are not
+# ceremony:
+#   csp.test.mjs       checks the Content-Security-Policy that BRIEF.md cites
+#   security.browser.mjs  has student Python attempt to phone home, and passes
+#                         only if nothing arrives
+# If either regresses, the promise made to Technology Services is no longer
+# true, and the site should not go out.
+#
+# The phase0-4 suites are not run here. They exercise animation timing and are
+# sensitive to a loaded shared runner; a flaky failure blocking a deploy would
+# be worse than useful. Run them locally with `npm test` before pushing.
+
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:      # lets you deploy by hand from the Actions tab
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Checks that need no browser
+        run: |
+          node test/csp.test.mjs
+          node test/sanitize.test.mjs
+          node test/share.test.mjs
+
+      - name: Install a browser for the security suite
+        run: |
+          npm install --no-save playwright
+          npx playwright install --with-deps chromium
+
+      - name: Student code must not be able to reach the network
+        run: node test/security.browser.mjs
+
+      - name: Build dist/
+        run: node build.mjs
+
+      # Serves the built folder from a subpath with no CSP header -- exactly how
+      # GitHub Pages will serve it -- and checks the whole application still
+      # works, the service worker still scopes correctly, and none of the tests
+      # or planning documents are reachable.
+      - name: The built site must work the way Pages will serve it
+        run: node test/dist.browser.mjs
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist          # NOT '.' -- that would publish tests and docs
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

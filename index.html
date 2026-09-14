@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<!-- Secondary layer. GitHub Pages cannot set HTTP headers, so the policy also
+     travels in the document. NOTE: a <meta> CSP does NOT apply to Web Workers,
+     which is where student Python runs - that is what src/runner/sandbox.js is
+     for, and why it is the primary defence rather than this.
+     frame-ancestors is omitted because <meta> cannot carry it. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'none'">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Python Turtle Editor</title>
+<link rel="icon" href="./favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+
+<header class="toolbar">
+  <span class="brand">Python Turtle</span>
+
+  <button id="run" class="btn btn-primary" disabled>Run</button>
+  <button id="stop" class="btn" disabled>Stop</button>
+  <button id="skip" class="btn btn-quiet" hidden>Skip animation</button>
+  <span class="toolbar-sep"></span>
+  <button id="normalize" class="btn btn-quiet" title="Convert tabs to spaces and remove invisible characters">Fix indentation</button>
+  <button id="ws" class="btn btn-quiet btn-toggle" aria-pressed="false"
+          title="Show a dot for each leading space, so indentation is visible">
+    Show spaces
+  </button>
+
+  <span class="toolbar-sep"></span>
+  <button id="work" class="btn btn-quiet" title="Saved programs and earlier versions">Your work</button>
+  <div class="menu">
+    <button id="save-menu" class="btn btn-quiet" aria-expanded="false">Save&hellip;</button>
+    <div id="save-list" class="menu-list" hidden>
+      <button data-act="py">Download .py</button>
+      <button data-act="file" id="save-file">Save to a file&hellip;</button>
+      <button data-act="png1">Image: PNG (1&times;)</button>
+      <button data-act="png2">Image: PNG (2&times;)</button>
+      <button data-act="png4">Image: PNG (4&times;)</button>
+      <button data-act="svg">Image: SVG (vector)</button>
+    </div>
+  </div>
+  <button id="share" class="btn btn-quiet" title="Copy a link that contains this program">Share link</button>
+  <div class="menu">
+    <button id="examples-menu" class="btn btn-quiet" aria-expanded="false">Examples</button>
+    <div id="examples-list" class="menu-list menu-wide" hidden></div>
+  </div>
+
+  <span class="toolbar-spacer"></span>
+  <input id="name" class="name-field" aria-label="Program name" spellcheck="false">
+  <span id="saved" class="saved-hint"></span>
+  <span id="status" class="status">Starting Python&hellip;</span>
+</header>
+
+<div id="banner" class="banner" hidden>
+  <span id="banner-text"></span>
+  <button id="banner-fork" class="btn btn-primary">Make a copy</button>
+  <button id="banner-close" class="btn btn-quiet">Dismiss</button>
+</div>
+
+<main class="panes">
+  <section class="pane pane-editor">
+    <div class="pane-title">Program</div>
+    <div id="editor"></div>
+  </section>
+
+  <section class="pane pane-canvas">
+    <div class="pane-title">Drawing</div>
+    <div class="canvas-wrap">
+      <canvas id="canvas"></canvas>
+      <p class="canvas-placeholder" id="canvas-placeholder">Press Run to draw.</p>
+    </div>
+  </section>
+
+  <section class="pane pane-console">
+    <div class="pane-title">Output</div>
+    <div id="console"></div>
+  </section>
+</main>
+
+<div id="panel"></div>
+
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>

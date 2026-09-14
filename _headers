@@ -1,0 +1,34 @@
+# Cloudflare Pages headers — SPEC.md section 12.
+#
+# The CSP is the enforceable form of this project's central promise: student
+# code never leaves the machine. `connect-src 'self'` means the browser refuses
+# any request to any origin other than the one serving the page, and that origin
+# is a static file host with no API. A future change that tried to reach an AI
+# service or an analytics endpoint would be blocked before the request left.
+#
+# 'wasm-unsafe-eval' is required to compile WebAssembly and is the narrow modern
+# replacement for 'unsafe-eval'. It does not permit eval() of JavaScript.
+#
+# Verified on every run by test/csp.test.mjs.
+
+/*
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; worker-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: no-referrer
+  Cross-Origin-Opener-Policy: same-origin
+
+# Version-pinned and enormous. Safe to cache forever; a version bump changes
+# the path, and the service worker keys its cache on CACHE_VERSION as well.
+/vendor/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# Our own code has no content hash in its filename, so it must never be cached
+# hard: a teacher pushing a fix has to reach students on the next reload.
+/src/*
+  Cache-Control: public, max-age=0, must-revalidate
+
+/index.html
+  Cache-Control: public, max-age=0, must-revalidate
+
+/sw.js
+  Cache-Control: public, max-age=0, must-revalidate
